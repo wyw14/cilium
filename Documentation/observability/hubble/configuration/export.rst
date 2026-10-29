@@ -277,3 +277,77 @@ Sample dynamic flow logs configs:
             includeFilters: []
             excludeFilters:
             - destination_pod: ["ingress/"]
+
+Event-triggered capture
+=======================
+
+By default a dynamic flow log continuously exports every event that matches
+its include/exclude filters. A flow log can instead be configured in
+**event-triggered capture** mode: matching events are kept in an in-memory
+buffer and nothing is written until a **trigger event** occurs. When a trigger
+fires, the flow log writes the buffered context that is still within the
+configured pre-trigger retention window, followed by the trigger event itself
+and the subsequent matching events until the post-trigger capture window ends.
+
+This is useful for retaining the context surrounding interesting network
+events (for example dropped flows) without continuously exporting traffic.
+
+The mode is enabled per flow log with the ``eventTrigger`` property:
+
+- ``triggerFilters`` (required, non-empty): a list of flow filters, using the
+  same filter format as ``includeFilters``. A candidate event matching any of
+  these filters starts a capture window; additional matches while a window is
+  open extend the window.
+
+- ``preTriggerDuration`` (default ``0s``): how long before a trigger an event
+  remains eligible to be written as context. It may be zero (no pre-trigger
+  context) but must not be negative.
+
+- ``postTriggerDuration`` (default ``0s``): how long candidate events keep
+  being written after a trigger. It may be zero (only the trigger event is
+  written) but must not be negative.
+
+- ``bufferMaxEvents`` (required): the maximum number of candidate events kept
+  in the pre-trigger buffer. It must be a strictly positive integer; when the
+  buffer is full, the earliest buffered events are evicted first.
+
+Semantics:
+
+- Only events that pass the flow log ``includeFilters``/``excludeFilters`` are
+  buffered or considered as triggers; nothing is written before the first
+  trigger.
+- Buffered context is written in the order events were received on the node.
+  Time windows use the node receive time, not the timestamp carried inside the
+  flow, so out-of-order flow timestamps do not affect capture decisions.
+- Repeated triggers while a window is open extend the capture deadline to the
+  last trigger time plus ``postTriggerDuration``. An event is never written
+  more than once.
+- The global ``end`` time always takes precedence over an open capture window:
+  once it has passed, nothing is buffered or written.
+- When the flow log is deleted, replaced or stopped, buffered events that were
+  never triggered are discarded without being written.
+- Event-triggered capture cannot be combined with ``fieldAggregate``. A
+  configuration containing both is rejected before it takes effect, as are
+  invalid durations or buffer limits. Flow logs without ``eventTrigger`` keep
+  the existing continuous export behavior.
+
+Example configuration that keeps 30 seconds of context around dropped flows
+and continues capturing for one minute after the last drop:
+
+::
+
+  hubble:
+    export:
+      dynamic:
+        enabled: true
+        config:
+          enabled: true
+          content:
+          - name: "drops"
+            filePath: "/var/run/cilium/hubble/drops.log"
+            eventTrigger:
+              triggerFilters:
+              - verdict: ["DROPPED"]
+              preTriggerDuration: "30s"
+              postTriggerDuration: "1m"
+              bufferMaxEvents: 10000

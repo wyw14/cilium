@@ -308,6 +308,49 @@ func TestCompareFlowLogConfigs(t *testing.T) {
 			newConfig:     &FlowLogConfig{AggregationInterval: Duration(60 * time.Second)},
 			expectEqual:   false,
 		},
+		{
+			name: "should equal for same event trigger config",
+			currentConfig: &FlowLogConfig{EventTrigger: &EventTriggerConfig{
+				TriggerFilters:      FlowFilters{{Verdict: []flow.Verdict{flow.Verdict_DROPPED}}},
+				PreTriggerDuration:  Duration(10 * time.Second),
+				PostTriggerDuration: Duration(5 * time.Second),
+				BufferMaxEvents:     100,
+			}},
+			newConfig: &FlowLogConfig{EventTrigger: &EventTriggerConfig{
+				TriggerFilters:      FlowFilters{{Verdict: []flow.Verdict{flow.Verdict_DROPPED}}},
+				PreTriggerDuration:  Duration(10 * time.Second),
+				PostTriggerDuration: Duration(5 * time.Second),
+				BufferMaxEvents:     100,
+			}},
+			expectEqual: true,
+		},
+		{
+			name: "should not equal for different event trigger buffer cap",
+			currentConfig: &FlowLogConfig{EventTrigger: &EventTriggerConfig{
+				TriggerFilters:      FlowFilters{{Verdict: []flow.Verdict{flow.Verdict_DROPPED}}},
+				PreTriggerDuration:  Duration(10 * time.Second),
+				PostTriggerDuration: Duration(5 * time.Second),
+				BufferMaxEvents:     100,
+			}},
+			newConfig: &FlowLogConfig{EventTrigger: &EventTriggerConfig{
+				TriggerFilters:      FlowFilters{{Verdict: []flow.Verdict{flow.Verdict_DROPPED}}},
+				PreTriggerDuration:  Duration(10 * time.Second),
+				PostTriggerDuration: Duration(5 * time.Second),
+				BufferMaxEvents:     50,
+			}},
+			expectEqual: false,
+		},
+		{
+			name: "should not equal when event trigger enabled on only one side",
+			currentConfig: &FlowLogConfig{EventTrigger: &EventTriggerConfig{
+				TriggerFilters:      FlowFilters{{Verdict: []flow.Verdict{flow.Verdict_DROPPED}}},
+				PreTriggerDuration:  Duration(10 * time.Second),
+				PostTriggerDuration: Duration(5 * time.Second),
+				BufferMaxEvents:     100,
+			}},
+			newConfig:   &FlowLogConfig{},
+			expectEqual: false,
+		},
 	}
 
 	for _, tc := range cases {

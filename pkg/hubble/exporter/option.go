@@ -5,6 +5,7 @@ package exporter
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
@@ -28,6 +29,7 @@ type Options struct {
 	FieldMask           fieldmask.FieldMask
 	FieldAggregate      fieldaggregate.FieldAggregate
 	OnExportEvent       []OnExportEvent
+	eventTrigger        *eventTrigger
 
 	// keep types that can't be marshalled as JSON private
 	newWriterFunc             NewWriterFunc
@@ -130,6 +132,40 @@ func WithOnExportEvent(onExportEvent OnExportEvent) Option {
 // WithOnExportEventFunc registers an OnExportEventFunc hook on the exporter.
 func WithOnExportEventFunc(onExportEventFunc OnExportEventFunc) Option {
 	return WithOnExportEvent(onExportEventFunc)
+}
+
+// WithEventTrigger enables event-triggered capture mode. A nil configuration
+// leaves the continuous export behavior unchanged. An invalid configuration is
+// rejected before the exporter is created.
+func WithEventTrigger(log *slog.Logger, config *EventTriggerConfig) Option {
+	return func(o *Options) error {
+		if config == nil {
+			return nil
+		}
+		if len(config.TriggerFilters) == 0 {
+			return fmt.Errorf("event trigger requires at least one trigger filter")
+		}
+		triggerFilters, err := filters.BuildFilterList(context.Background(), config.TriggerFilters, filters.DefaultFilters(log))
+		if err != nil {
+			return fmt.Errorf("failed to build event trigger filters: %w", err)
+		}
+		if time.Duration(config.PreTriggerDuration) < 0 {
+			return fmt.Errorf("event trigger pre-trigger duration must be zero or positive")
+		}
+		if time.Duration(config.PostTriggerDuration) < 0 {
+			return fmt.Errorf("event trigger post-trigger duration must be zero or positive")
+		}
+		if config.BufferMaxEvents <= 0 {
+			return fmt.Errorf("event trigger buffer max events must be a positive integer")
+		}
+		o.eventTrigger = newEventTrigger(
+			triggerFilters,
+			time.Duration(config.PreTriggerDuration),
+			time.Duration(config.PostTriggerDuration),
+			config.BufferMaxEvents,
+		)
+		return nil
+	}
 }
 
 func (o *Options) AllowFilters() filters.FilterFuncs {

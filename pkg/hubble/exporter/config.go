@@ -78,6 +78,7 @@ func (f *exporterFactory) create(config *FlowLogConfig) (*exporter, error) {
 		WithFieldMask(config.FieldMask),
 		WithFieldAggregate(config.FieldAggregate),
 		WithAggregationInterval(time.Duration(config.AggregationInterval)),
+		WithEventTrigger(f.logger, config.EventTrigger),
 		WithOnExportEventFunc(func(ctx context.Context, ev *v1.Event, encoder Encoder) (bool, error) {
 			stop := !config.IsActive()
 			return stop, nil
@@ -137,6 +138,8 @@ func (c *DynamicExportersConfig) Validate() error {
 			}
 			flowlogPaths[filePath] = struct{}{}
 		}
+
+		errs = errors.Join(errs, c.FlowLogs[i].validate(name))
 	}
 
 	return errs
@@ -146,17 +149,66 @@ var _ ExporterConfig = (*FlowLogConfig)(nil)
 
 // FlowLogConfig represents configuration of single dynamic exporter.
 type FlowLogConfig struct {
-	Name                string         `json:"name,omitempty" yaml:"name,omitempty"`
-	FilePath            string         `json:"filePath,omitempty" yaml:"filePath,omitempty"`
-	FieldMask           FieldMask      `json:"fieldMask,omitempty" yaml:"fieldMask,omitempty"`
-	FieldAggregate      FieldAggregate `json:"fieldAggregate,omitempty" yaml:"fieldAggregate,omitempty"`
-	AggregationInterval Duration       `json:"aggregationInterval,omitempty" yaml:"aggregationInterval,omitempty"`
-	IncludeFilters      FlowFilters    `json:"includeFilters,omitempty" yaml:"includeFilters,omitempty"`
-	ExcludeFilters      FlowFilters    `json:"excludeFilters,omitempty" yaml:"excludeFilters,omitempty"`
-	FileMaxSizeMB       int            `json:"fileMaxSizeMb,omitempty" yaml:"fileMaxSizeMb,omitempty"`
-	FileMaxBackups      int            `json:"fileMaxBackups,omitempty" yaml:"fileMaxBackups,omitempty"`
-	FileCompress        bool           `json:"fileCompress,omitempty" yaml:"fileCompress,omitempty"`
-	End                 *time.Time     `json:"end,omitempty" yaml:"end,omitempty"`
+	Name                string              `json:"name,omitempty" yaml:"name,omitempty"`
+	FilePath            string              `json:"filePath,omitempty" yaml:"filePath,omitempty"`
+	FieldMask           FieldMask           `json:"fieldMask,omitempty" yaml:"fieldMask,omitempty"`
+	FieldAggregate      FieldAggregate      `json:"fieldAggregate,omitempty" yaml:"fieldAggregate,omitempty"`
+	AggregationInterval Duration            `json:"aggregationInterval,omitempty" yaml:"aggregationInterval,omitempty"`
+	IncludeFilters      FlowFilters         `json:"includeFilters,omitempty" yaml:"includeFilters,omitempty"`
+	ExcludeFilters      FlowFilters         `json:"excludeFilters,omitempty" yaml:"excludeFilters,omitempty"`
+	FileMaxSizeMB       int                 `json:"fileMaxSizeMb,omitempty" yaml:"fileMaxSizeMb,omitempty"`
+	FileMaxBackups      int                 `json:"fileMaxBackups,omitempty" yaml:"fileMaxBackups,omitempty"`
+	FileCompress        bool                `json:"fileCompress,omitempty" yaml:"fileCompress,omitempty"`
+	End                 *time.Time          `json:"end,omitempty" yaml:"end,omitempty"`
+	EventTrigger        *EventTriggerConfig `json:"eventTrigger,omitempty" yaml:"eventTrigger,omitempty"`
+}
+
+// EventTriggerConfig configures event-triggered capture mode. When enabled,
+// candidate events (events passing the flowlog include/exclude filters) are
+// buffered instead of being exported. Once an event matching TriggerFilters
+// is received, the buffered events within the pre-trigger retention window
+// are written first, followed by the trigger event and subsequent candidate
+// events until the post-trigger capture window ends.
+type EventTriggerConfig struct {
+	// TriggerFilters selects events that start (or extend) a capture window.
+	TriggerFilters FlowFilters `json:"triggerFilters,omitempty" yaml:"triggerFilters,omitempty"`
+	// PreTriggerDuration is how long before a trigger an event remains
+	// eligible for being written as trigger context. It may be zero but
+	// must not be negative.
+	PreTriggerDuration Duration `json:"preTriggerDuration,omitempty" yaml:"preTriggerDuration,omitempty"`
+	// PostTriggerDuration is how long candidate events keep being written
+	// after a trigger. It may be zero but must not be negative.
+	PostTriggerDuration Duration `json:"postTriggerDuration,omitempty" yaml:"postTriggerDuration,omitempty"`
+	// BufferMaxEvents is the maximum number of candidate events kept in the
+	// pre-trigger buffer. It must be a strictly positive integer. When the
+	// buffer is full, the earliest buffered events are evicted first.
+	BufferMaxEvents int `json:"bufferMaxEvents,omitempty" yaml:"bufferMaxEvents,omitempty"`
+}
+
+// validate returns an error if the flowlog configuration is invalid. The
+// flowlog name is provided for error reporting only.
+func (f *FlowLogConfig) validate(name string) error {
+	var errs error
+
+	if et := f.EventTrigger; et != nil {
+		if len(et.TriggerFilters) == 0 {
+			errs = errors.Join(errs, fmt.Errorf("flowlog %q: eventTrigger.triggerFilters must contain at least one filter", name))
+		}
+		if et.PreTriggerDuration < 0 {
+			errs = errors.Join(errs, fmt.Errorf("flowlog %q: eventTrigger.preTriggerDuration must be zero or positive", name))
+		}
+		if et.PostTriggerDuration < 0 {
+			errs = errors.Join(errs, fmt.Errorf("flowlog %q: eventTrigger.postTriggerDuration must be zero or positive", name))
+		}
+		if et.BufferMaxEvents <= 0 {
+			errs = errors.Join(errs, fmt.Errorf("flowlog %q: eventTrigger.bufferMaxEvents must be a positive integer", name))
+		}
+		if len(f.FieldAggregate) > 0 {
+			errs = errors.Join(errs, fmt.Errorf("flowlog %q: eventTrigger cannot be enabled together with fieldAggregate", name))
+		}
+	}
+
+	return errs
 }
 
 // Equal implements ExporterConfig.
@@ -219,6 +271,38 @@ func (f *FlowLogConfig) equals(other *FlowLogConfig) bool {
 	if f.End == nil && other.End != nil ||
 		f.End != nil && other.End == nil ||
 		f.End != nil && other.End != nil && !f.End.Equal(*other.End) {
+		return false
+	}
+
+	if !f.EventTrigger.equals(other.EventTrigger) {
+		return false
+	}
+
+	return true
+}
+
+// equals reports whether two event trigger configurations are equivalent.
+func (c *EventTriggerConfig) equals(other *EventTriggerConfig) bool {
+	if c == nil && other == nil {
+		return true
+	}
+	if c == nil || other == nil {
+		return false
+	}
+
+	if !c.TriggerFilters.equals(other.TriggerFilters) {
+		return false
+	}
+
+	if c.PreTriggerDuration != other.PreTriggerDuration {
+		return false
+	}
+
+	if c.PostTriggerDuration != other.PostTriggerDuration {
+		return false
+	}
+
+	if c.BufferMaxEvents != other.BufferMaxEvents {
 		return false
 	}
 

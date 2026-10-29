@@ -3120,6 +3120,24 @@
                               "aggregationInterval": {
                                 "type": "string"
                               },
+                              "eventTrigger": {
+                                "properties": {
+                                  "bufferMaxEvents": {
+                                    "type": "integer"
+                                  },
+                                  "postTriggerDuration": {
+                                    "type": "string"
+                                  },
+                                  "preTriggerDuration": {
+                                    "type": "string"
+                                  },
+                                  "triggerFilters": {
+                                    "items": {},
+                                    "type": "array"
+                                  }
+                                },
+                                "type": "object"
+                              },
                               "excludeFilters": {
                                 "items": {},
                                 "type": "array"

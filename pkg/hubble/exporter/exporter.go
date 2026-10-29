@@ -51,12 +51,13 @@ var _ FlowLogExporter = (*exporter)(nil)
 
 // exporter is an implementation of OnDecodedEvent interface that writes Hubble events to a file.
 type exporter struct {
-	logger     *slog.Logger
-	encoder    Encoder
-	writer     io.WriteCloser
-	flow       *flowpb.Flow
-	aggregator *AggregatorRunner
-	opts       Options
+	logger       *slog.Logger
+	encoder      Encoder
+	writer       io.WriteCloser
+	flow         *flowpb.Flow
+	aggregator   *AggregatorRunner
+	eventTrigger *eventTrigger
+	opts         Options
 }
 
 // NewExporter initializes an
@@ -77,6 +78,12 @@ func NewExporter(logger *slog.Logger, options ...Option) (*exporter, error) {
 
 // newExporter let's you supply your own WriteCloser for tests.
 func newExporter(logger *slog.Logger, opts Options) (*exporter, error) {
+	// Event-triggered capture replaces continuous export and is incompatible
+	// with field aggregation, which continuously groups and exports flows.
+	if opts.FieldAggregate.Active() && opts.eventTrigger != nil {
+		return nil, fmt.Errorf("event trigger capture cannot be enabled together with field aggregation")
+	}
+
 	writer, err := opts.NewWriterFunc()()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create writer: %w", err)
@@ -92,11 +99,12 @@ func newExporter(logger *slog.Logger, opts Options) (*exporter, error) {
 		opts.FieldMask.Alloc(flow.ProtoReflect())
 	}
 	ex := &exporter{
-		logger:  logger,
-		encoder: encoder,
-		writer:  writer,
-		flow:    flow,
-		opts:    opts,
+		logger:       logger,
+		encoder:      encoder,
+		writer:       writer,
+		flow:         flow,
+		eventTrigger: opts.eventTrigger,
+		opts:         opts,
 	}
 
 	// Initialize aggregator only if field aggregate is active and interval > 0.
@@ -147,6 +155,12 @@ func (e *exporter) Export(ctx context.Context, ev *v1.Event) error {
 		}
 	}
 
+	// In event-triggered capture mode, candidate events are buffered until a
+	// trigger fires instead of being continuously exported.
+	if e.eventTrigger != nil {
+		return e.exportTriggered(ev)
+	}
+
 	// If aggregation enabled, send only flow events to aggregator.
 	// Non-flow events bypass aggregation and are exported directly.
 	if e.aggregator != nil {
@@ -163,12 +177,33 @@ func (e *exporter) Export(ctx context.Context, ev *v1.Event) error {
 	return e.encoder.Encode(res)
 }
 
+// exportTriggered feeds a candidate event to the event-triggered capture state
+// machine and encodes the events it decides to emit, preserving their receive
+// order.
+func (e *exporter) exportTriggered(ev *v1.Event) error {
+	for _, emitted := range e.eventTrigger.onEvent(ev) {
+		res := e.eventToExportEvent(emitted)
+		if res == nil {
+			continue
+		}
+		if err := e.encoder.Encode(res); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Stop implements FlowLogExporter.
 func (e *exporter) Stop() error {
 	e.logger.Debug("hubble flow exporter stopping")
 
 	if e.aggregator != nil {
 		e.aggregator.Stop()
+	}
+
+	// Discard and release any buffered but never-triggered events.
+	if e.eventTrigger != nil {
+		e.eventTrigger.stop()
 	}
 
 	if e.writer == nil {
