@@ -241,6 +241,35 @@ File rotation is configured per flow log entry. Each entry accepts its own
 omits these settings, the defaults are used (``fileMaxSizeMb: 10``,
 ``fileMaxBackups: 5``, ``fileCompress: false``).
 
+Namespace-partitioned output
+----------------------------
+
+Instead of writing all matching flows to one file, a flow log entry can
+partition them into independent files with the ``partition`` property.
+``filePath`` must be omitted when ``partition`` is set. Each matching event is
+written to exactly one file:
+
+- ``partition.field`` selects which namespace to partition by; supported values
+  are ``source.namespace`` and ``destination.namespace``.
+- ``partition.directory`` is the directory containing the per-namespace files,
+  named after the namespace (e.g. ``kube-system.log``). File names are sanitized
+  so they can never escape the configured directory.
+- Events without the selected namespace, including non-flow events, are written
+  to the dedicated ``_no_namespace.log`` partition, which can never collide with
+  a real namespace file.
+- ``partition.maxOpenFiles`` caps how many partition files stay open at the same
+  time (default 128). Idle partitions beyond the cap are closed and transparently
+  reopened, appending to the same file, when traffic resumes.
+
+Partitioning is applied after the include/exclude filters, which always run on
+the original event; removing namespace fields with ``fieldMask`` does not change
+which partition an event is written to. When ``fieldAggregate`` is enabled, each
+partition is aggregated independently, so flows from different namespaces are
+never merged into a single aggregate record. Every partition file follows the
+entry's own ``fileMaxSizeMb``, ``fileMaxBackups`` and ``fileCompress`` rotation
+settings. Deleting or replacing the flow log entry stops all of its partition
+writers and releases their file resources.
+
 Sample dynamic flow logs configs:
 
 ::
@@ -277,3 +306,14 @@ Sample dynamic flow logs configs:
             includeFilters: []
             excludeFilters:
             - destination_pod: ["ingress/"]
+          - name: "test004"
+            partition:
+              field: "source.namespace"
+              directory: "/var/run/cilium/hubble/flowlogs-test004"
+              maxOpenFiles: 64
+            fileMaxSizeMb: 50
+            fileMaxBackups: 5
+            fileCompress: true
+            fieldMask: ["source.namespace", "source.pod_name", "destination.namespace", "destination.pod_name", "verdict"]
+            includeFilters: []
+            excludeFilters: []

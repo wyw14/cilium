@@ -56,6 +56,9 @@ type exporter struct {
 	writer     io.WriteCloser
 	flow       *flowpb.Flow
 	aggregator *AggregatorRunner
+	// partitions, when non-nil, replaces the single writer/encoder pipeline
+	// with namespace-partitioned output.
+	partitions *partitionManager
 	opts       Options
 }
 
@@ -77,6 +80,40 @@ func NewExporter(logger *slog.Logger, options ...Option) (*exporter, error) {
 
 // newExporter let's you supply your own WriteCloser for tests.
 func newExporter(logger *slog.Logger, opts Options) (*exporter, error) {
+	var flow *flowpb.Flow
+	if opts.FieldMask.Active() {
+		flow = new(flowpb.Flow)
+		opts.FieldMask.Alloc(flow.ProtoReflect())
+	}
+	ex := &exporter{
+		logger: logger,
+		flow:   flow,
+		opts:   opts,
+	}
+
+	// Namespace-partitioned output keeps one writer/encoder (and, when
+	// aggregating, one aggregator) per partition, all lazily created by the
+	// partition manager.
+	if opts.partition.NewPartitionWriter != nil {
+		partitions, err := newPartitionManager(logger, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create partition manager: %w", err)
+		}
+		ex.partitions = partitions
+
+		// Initialize per-partition aggregation only if field aggregate is
+		// active and interval > 0.
+		if opts.FieldAggregate.Active() && opts.aggregationInterval > 0 {
+			partitions.startAggregation()
+		} else if opts.FieldAggregate.Active() && opts.aggregationInterval <= 0 {
+			logger.Warn(
+				"Field aggregation requested but disabled due to aggregation interval <= 0; Exporting raw events",
+				logfields.Interval, opts.aggregationInterval,
+			)
+		}
+		return ex, nil
+	}
+
 	writer, err := opts.NewWriterFunc()()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create writer: %w", err)
@@ -86,18 +123,8 @@ func newExporter(logger *slog.Logger, opts Options) (*exporter, error) {
 		writer.Close()
 		return nil, fmt.Errorf("failed to create encoder: %w", err)
 	}
-	var flow *flowpb.Flow
-	if opts.FieldMask.Active() {
-		flow = new(flowpb.Flow)
-		opts.FieldMask.Alloc(flow.ProtoReflect())
-	}
-	ex := &exporter{
-		logger:  logger,
-		encoder: encoder,
-		writer:  writer,
-		flow:    flow,
-		opts:    opts,
-	}
+	ex.encoder = encoder
+	ex.writer = writer
 
 	// Initialize aggregator only if field aggregate is active and interval > 0.
 	if opts.FieldAggregate.Active() && opts.aggregationInterval > 0 {
@@ -134,7 +161,9 @@ func (e *exporter) Export(ctx context.Context, ev *v1.Event) error {
 		return nil
 	}
 
-	// Process OnExportEvent hooks
+	// Process OnExportEvent hooks. In partitioned mode there is no single
+	// encoder bound to the exporter (the target encoder depends on the event);
+	// the built-in hooks do not use it.
 	for _, f := range e.opts.OnExportEvent {
 		stop, err := f.OnExportEvent(ctx, ev, e.encoder)
 		if err != nil {
@@ -145,6 +174,11 @@ func (e *exporter) Export(ctx context.Context, ev *v1.Event) error {
 			// other OnDecodedEvent hooks from firing
 			return nil
 		}
+	}
+
+	// Namespace-partitioned pipeline.
+	if e.partitions != nil {
+		return e.exportPartitioned(ev)
 	}
 
 	// If aggregation enabled, send only flow events to aggregator.
@@ -163,12 +197,42 @@ func (e *exporter) Export(ctx context.Context, ev *v1.Event) error {
 	return e.encoder.Encode(res)
 }
 
+// exportPartitioned routes a single event to exactly one partition file.
+//
+// The partition is determined from the original event, i.e. before field
+// masking: a field mask that excludes the namespace fields therefore does not
+// change partition assignment. When aggregation is enabled, flow events are
+// aggregated independently within their own partition.
+func (e *exporter) exportPartitioned(ev *v1.Event) error {
+	key := e.partitions.keyForEvent(ev)
+
+	// If aggregation is enabled, send flow events to the partition's own
+	// aggregator. Non-flow events bypass aggregation and are exported directly.
+	if e.partitions.aggregating {
+		if _, ok := ev.Event.(*flowpb.Flow); ok {
+			return e.partitions.addAggregated(key, ev)
+		}
+	}
+
+	res := e.eventToExportEvent(ev)
+	if res == nil {
+		return nil
+	}
+	return e.partitions.encode(key, res)
+}
+
 // Stop implements FlowLogExporter.
 func (e *exporter) Stop() error {
 	e.logger.Debug("hubble flow exporter stopping")
 
 	if e.aggregator != nil {
 		e.aggregator.Stop()
+	}
+
+	if e.partitions != nil {
+		// Stops per-partition aggregation and closes every open partition
+		// file, releasing all file resources of this flowlog. Idempotent.
+		return e.partitions.close()
 	}
 
 	if e.writer == nil {

@@ -83,15 +83,36 @@ func (f *exporterFactory) create(config *FlowLogConfig) (*exporter, error) {
 			return stop, nil
 		}),
 	}
-	if config.FilePath != "stdout" {
-		fileMaxSizeMB := config.FileMaxSizeMB
-		if fileMaxSizeMB == 0 {
-			fileMaxSizeMB = DefaultFileMaxSizeMB
+	fileMaxSizeMB := config.FileMaxSizeMB
+	if fileMaxSizeMB == 0 {
+		fileMaxSizeMB = DefaultFileMaxSizeMB
+	}
+	fileMaxBackups := config.FileMaxBackups
+	if fileMaxBackups == 0 {
+		fileMaxBackups = DefaultFileMaxBackups
+	}
+	switch {
+	case config.Partition != nil:
+		// Namespace-partitioned output: one independently rotated file per
+		// namespace under the configured directory.
+		maxOpenFiles := config.Partition.MaxOpenFiles
+		if maxOpenFiles == 0 {
+			maxOpenFiles = DefaultPartitionMaxOpenFiles
 		}
-		fileMaxBackups := config.FileMaxBackups
-		if fileMaxBackups == 0 {
-			fileMaxBackups = DefaultFileMaxBackups
-		}
+		exporterOpts = append(exporterOpts, WithPartitionedOutput(PartitionOutputConfig{
+			Field:        PartitionField(config.Partition.Field),
+			Directory:    config.Partition.Directory,
+			MaxOpenFiles: maxOpenFiles,
+			NewPartitionWriter: func(filename string) (io.WriteCloser, error) {
+				return FileWriter(FileWriterConfig{
+					Filename:   filename,
+					MaxSize:    fileMaxSizeMB,
+					MaxBackups: fileMaxBackups,
+					Compress:   config.FileCompress,
+				})()
+			},
+		}))
+	case config.FilePath != "stdout":
 		exporterOpts = append(exporterOpts, WithNewWriterFunc(FileWriter(FileWriterConfig{
 			Filename:   config.FilePath,
 			MaxSize:    fileMaxSizeMB,
@@ -118,7 +139,8 @@ func (c *DynamicExportersConfig) Validate() error {
 			errs = errors.Join(errs, fmt.Errorf("invalid flowlog at index %d", i))
 			continue
 		}
-		name := c.FlowLogs[i].Name
+		fl := c.FlowLogs[i]
+		name := fl.Name
 		if name == "" {
 			errs = errors.Join(errs, fmt.Errorf("name is required"))
 		} else {
@@ -128,7 +150,23 @@ func (c *DynamicExportersConfig) Validate() error {
 			flowlogNames[name] = struct{}{}
 		}
 
-		filePath := c.FlowLogs[i].FilePath
+		if fl.Partition != nil {
+			if fl.FilePath != "" {
+				errs = errors.Join(errs, fmt.Errorf("filePath must be empty when partition is configured for flowlog %s", name))
+			}
+			if err := fl.Partition.validate(); err != nil {
+				errs = errors.Join(errs, fmt.Errorf("invalid partition config for flowlog %s: %w", name, err))
+			} else {
+				directory := fl.Partition.Directory
+				if _, ok := flowlogPaths[directory]; ok {
+					errs = errors.Join(errs, fmt.Errorf("duplicated flowlog partition directory %s", directory))
+				}
+				flowlogPaths[directory] = struct{}{}
+			}
+			continue
+		}
+
+		filePath := fl.FilePath
 		if filePath == "" {
 			errs = errors.Join(errs, fmt.Errorf("filePath is required"))
 		} else {
@@ -142,21 +180,54 @@ func (c *DynamicExportersConfig) Validate() error {
 	return errs
 }
 
+// FlowLogPartitionConfig configures namespace-partitioned file output for a
+// flowlog. When set on a FlowLogConfig, matched events are written to one file
+// per namespace under Directory instead of to a single FilePath.
+type FlowLogPartitionConfig struct {
+	// Field selects the namespace used for partitioning. Valid values are
+	// "source.namespace" and "destination.namespace".
+	Field string `json:"field,omitempty" yaml:"field,omitempty"`
+	// Directory is the directory in which one file per partition is created.
+	// Partition file names are derived from namespace values and are
+	// guaranteed to reside within this directory.
+	Directory string `json:"directory,omitempty" yaml:"directory,omitempty"`
+	// MaxOpenFiles caps how many partition files are kept open
+	// simultaneously. Idle partitions beyond the cap are closed and reopened
+	// on demand. A zero value means DefaultPartitionMaxOpenFiles.
+	MaxOpenFiles int `json:"maxOpenFiles,omitempty" yaml:"maxOpenFiles,omitempty"`
+}
+
+// validate checks the partition configuration.
+func (p *FlowLogPartitionConfig) validate() error {
+	var errs error
+	if err := PartitionField(p.Field).Validate(); err != nil {
+		errs = errors.Join(errs, err)
+	}
+	if p.Directory == "" {
+		errs = errors.Join(errs, fmt.Errorf("directory is required"))
+	}
+	if p.MaxOpenFiles < 0 {
+		errs = errors.Join(errs, fmt.Errorf("maxOpenFiles must be >= 0, got %d", p.MaxOpenFiles))
+	}
+	return errs
+}
+
 var _ ExporterConfig = (*FlowLogConfig)(nil)
 
 // FlowLogConfig represents configuration of single dynamic exporter.
 type FlowLogConfig struct {
-	Name                string         `json:"name,omitempty" yaml:"name,omitempty"`
-	FilePath            string         `json:"filePath,omitempty" yaml:"filePath,omitempty"`
-	FieldMask           FieldMask      `json:"fieldMask,omitempty" yaml:"fieldMask,omitempty"`
-	FieldAggregate      FieldAggregate `json:"fieldAggregate,omitempty" yaml:"fieldAggregate,omitempty"`
-	AggregationInterval Duration       `json:"aggregationInterval,omitempty" yaml:"aggregationInterval,omitempty"`
-	IncludeFilters      FlowFilters    `json:"includeFilters,omitempty" yaml:"includeFilters,omitempty"`
-	ExcludeFilters      FlowFilters    `json:"excludeFilters,omitempty" yaml:"excludeFilters,omitempty"`
-	FileMaxSizeMB       int            `json:"fileMaxSizeMb,omitempty" yaml:"fileMaxSizeMb,omitempty"`
-	FileMaxBackups      int            `json:"fileMaxBackups,omitempty" yaml:"fileMaxBackups,omitempty"`
-	FileCompress        bool           `json:"fileCompress,omitempty" yaml:"fileCompress,omitempty"`
-	End                 *time.Time     `json:"end,omitempty" yaml:"end,omitempty"`
+	Name                string                  `json:"name,omitempty" yaml:"name,omitempty"`
+	FilePath            string                  `json:"filePath,omitempty" yaml:"filePath,omitempty"`
+	Partition           *FlowLogPartitionConfig `json:"partition,omitempty" yaml:"partition,omitempty"`
+	FieldMask           FieldMask               `json:"fieldMask,omitempty" yaml:"fieldMask,omitempty"`
+	FieldAggregate      FieldAggregate          `json:"fieldAggregate,omitempty" yaml:"fieldAggregate,omitempty"`
+	AggregationInterval Duration                `json:"aggregationInterval,omitempty" yaml:"aggregationInterval,omitempty"`
+	IncludeFilters      FlowFilters             `json:"includeFilters,omitempty" yaml:"includeFilters,omitempty"`
+	ExcludeFilters      FlowFilters             `json:"excludeFilters,omitempty" yaml:"excludeFilters,omitempty"`
+	FileMaxSizeMB       int                     `json:"fileMaxSizeMb,omitempty" yaml:"fileMaxSizeMb,omitempty"`
+	FileMaxBackups      int                     `json:"fileMaxBackups,omitempty" yaml:"fileMaxBackups,omitempty"`
+	FileCompress        bool                    `json:"fileCompress,omitempty" yaml:"fileCompress,omitempty"`
+	End                 *time.Time              `json:"end,omitempty" yaml:"end,omitempty"`
 }
 
 // Equal implements ExporterConfig.
@@ -181,6 +252,10 @@ func (f *FlowLogConfig) equals(other *FlowLogConfig) bool {
 	}
 
 	if f.FilePath != other.FilePath {
+		return false
+	}
+
+	if !equalFlowLogPartitionConfig(f.Partition, other.Partition) {
 		return false
 	}
 
@@ -223,6 +298,14 @@ func (f *FlowLogConfig) equals(other *FlowLogConfig) bool {
 	}
 
 	return true
+}
+
+// equalFlowLogPartitionConfig compares two optional partition configurations.
+func equalFlowLogPartitionConfig(a, b *FlowLogPartitionConfig) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Field == b.Field && a.Directory == b.Directory && a.MaxOpenFiles == b.MaxOpenFiles
 }
 
 // FlowFilters is a slice of filters to include or exclude flows.

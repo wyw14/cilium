@@ -5,6 +5,8 @@ package exporter
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
@@ -34,6 +36,12 @@ type Options struct {
 	newEncoderFunc            NewEncoderFunc
 	allowFilters, denyFilters filters.FilterFuncs
 	aggregationInterval       time.Duration
+
+	// partition configures namespace-partitioned output. Its zero value
+	// disables partitioning, in which case all events are written to the
+	// single writer. A non-zero value (set via WithPartitionedOutput) makes
+	// NewWriterFunc unused by the exporter.
+	partition PartitionOutputConfig
 }
 
 // Option customizes the configuration of the hubble server.
@@ -115,6 +123,34 @@ func WithFieldAggregate(paths []string) Option {
 func WithAggregationInterval(interval time.Duration) Option {
 	return func(o *Options) error {
 		o.aggregationInterval = interval
+		return nil
+	}
+}
+
+// WithPartitionedOutput enables namespace-partitioned file output: matched
+// events are written to one file per namespace under config.Directory, selected
+// by config.Field. Events missing the selected namespace are written to a
+// dedicated default partition. It is mutually exclusive with the single-file
+// writer configured via WithNewWriterFunc; when enabled, each event is routed to
+// exactly one partition and field aggregation runs independently per partition.
+func WithPartitionedOutput(config PartitionOutputConfig) Option {
+	return func(o *Options) error {
+		if err := config.Field.Validate(); err != nil {
+			return err
+		}
+		if config.Directory == "" {
+			return errors.New("partition directory must not be empty")
+		}
+		if config.MaxOpenFiles < 0 {
+			return fmt.Errorf("invalid partition max open files %d: must be >= 0", config.MaxOpenFiles)
+		}
+		if config.MaxOpenFiles == 0 {
+			config.MaxOpenFiles = DefaultPartitionMaxOpenFiles
+		}
+		if config.NewPartitionWriter == nil {
+			return errors.New("partition writer constructor must not be nil")
+		}
+		o.partition = config
 		return nil
 	}
 }
