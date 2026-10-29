@@ -182,7 +182,7 @@ func (n *manager) deleteDNSLookups(expireLookupsBefore time.Time, matchPatternSt
 		n.cache.UpdateFromCache(ep.DNSHistory)
 
 		namesToRegen.Insert(ep.DNSZombies.ForceExpire(expireLookupsBefore, nameMatcher)...)
-		activeConnections := fqdn.NewDNSCache(0)
+		activeConnections := fqdn.NewDNSCache(0, 0)
 		zombies, dead := ep.DNSZombies.GC()
 		lookupTime := time.Now()
 		for _, zombie := range zombies {

@@ -93,7 +93,7 @@ func BenchmarkFqdnCache(b *testing.B) {
 	caches := make([]*fqdn.DNSCache, 0, endpoints)
 	for b.Loop() {
 		lookupTime := time.Now()
-		dnsHistory := fqdn.NewDNSCache(0)
+		dnsHistory := fqdn.NewDNSCache(0, 0)
 
 		for i := range 1000 {
 			dnsHistory.Update(lookupTime, fmt.Sprintf("domain-%d.com.", i), makeIPs(10), 1000)

@@ -131,7 +131,7 @@ func BenchmarkNotifyOnDNSMsg(b *testing.B) {
 		}
 		ep := endpoints[i]
 		ep.UpdateLogger(nil)
-		ep.DNSHistory = fqdn.NewDNSCache(0)
+		ep.DNSHistory = fqdn.NewDNSCache(0, 0)
 	}
 
 	b.ReportAllocs()

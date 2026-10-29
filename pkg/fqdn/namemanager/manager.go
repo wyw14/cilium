@@ -66,7 +66,7 @@ type selectorChange struct {
 
 // New creates an initialized NameManager.
 func New(params ManagerParams) *manager {
-	cache := fqdn.NewDNSCache(params.Config.MinTTL)
+	cache := fqdn.NewDNSCache(params.Config.MinTTL, params.Config.MaxTTL)
 	// Disable cleanup tracking on the default DNS cache. This cache simply
 	// tracks which api.FQDNSelector are present in policy which apply to
 	// locally running endpoints.

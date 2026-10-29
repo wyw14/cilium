@@ -27,7 +27,7 @@ import (
 func TestUpdateLookup(t *testing.T) {
 	name := "test.com"
 	now := time.Now()
-	cache := NewDNSCache(0)
+	cache := NewDNSCache(0, 0)
 	endTimeSeconds := 4
 
 	// Add 1 new entry "per second", and one with a redundant IP (with ttl/2).
@@ -81,7 +81,7 @@ func TestPrivilegedDelete(t *testing.T) {
 		"test3.com": netip.MustParseAddr("2.2.2.3")}
 	sharedIP := netip.MustParseAddr("1.1.1.1")
 	now := time.Now()
-	cache := NewDNSCache(0)
+	cache := NewDNSCache(0, 0)
 
 	// Insert 3 records with 1 shared IP and 3 with different IPs
 	cache.Update(now, "test1.com", []netip.Addr{sharedIP, names["test1.com"]}, 5)
@@ -146,7 +146,7 @@ func TestPrivilegedDelete(t *testing.T) {
 
 func Test_forceExpiredByNames(t *testing.T) {
 	names := []string{"test1.com", "test2.com"}
-	cache := NewDNSCache(0)
+	cache := NewDNSCache(0, 0)
 	for i := 1; i < 4; i++ {
 		cache.Update(
 			now,
@@ -167,7 +167,7 @@ func TestReverseUpdateLookup(t *testing.T) {
 		"test3.com": netip.MustParseAddr("2.2.2.3")}
 	sharedIP := netip.MustParseAddr("1.1.1.1")
 	now := time.Now()
-	cache := NewDNSCache(0)
+	cache := NewDNSCache(0, 0)
 
 	// insert 2 records, with 1 shared IP
 	cache.Update(now, "test1.com", []netip.Addr{sharedIP, names["test1.com"]}, 2)
@@ -234,7 +234,7 @@ func TestJSONMarshal(t *testing.T) {
 		"test3.com": netip.MustParseAddr("2.2.2.3")}
 	sharedIP := netip.MustParseAddr("1.1.1.1")
 	now := time.Now()
-	cache := NewDNSCache(0)
+	cache := NewDNSCache(0, 0)
 
 	// insert 3 records with 1 shared IP and 3 with different IPs
 	cache.Update(now, "test1.com", []netip.Addr{sharedIP}, 5)
@@ -248,7 +248,7 @@ func TestJSONMarshal(t *testing.T) {
 	data, err := cache.MarshalJSON()
 	require.NoError(t, err)
 
-	newCache := NewDNSCache(0)
+	newCache := NewDNSCache(0, 0)
 	err = newCache.UnmarshalJSON(data)
 	require.NoError(t, err)
 
@@ -285,7 +285,7 @@ func TestCountIPs(t *testing.T) {
 		"test2.com": netip.MustParseAddr("2.2.2.2"),
 		"test3.com": netip.MustParseAddr("3.3.3.3")}
 	sharedIP := netip.MustParseAddr("8.8.8.8")
-	cache := NewDNSCache(0)
+	cache := NewDNSCache(0, 0)
 
 	// Insert 3 records all sharing one IP and 1 unique IP.
 	cache.Update(now, "test1.com", []netip.Addr{sharedIP, names["test1.com"]}, 5)
@@ -368,7 +368,7 @@ func makeEntries(now time.Time, live, redundant, expired uint32) (entries []*cac
 // Note: each "op" works on size things
 func BenchmarkGetIPs(b *testing.B) {
 	now := time.Now()
-	cache := NewDNSCache(0)
+	cache := NewDNSCache(0, 0)
 	cache.Update(now, "test.com", []netip.Addr{netip.MustParseAddr("1.2.3.4")}, 60)
 	entries := cache.forward["test.com"]
 	for _, entry := range entriesOrig {
@@ -385,7 +385,7 @@ func BenchmarkUpdateIPs(b *testing.B) {
 	for b.Loop() {
 		b.StopTimer()
 		now := time.Now()
-		cache := NewDNSCache(0)
+		cache := NewDNSCache(0, 0)
 		cache.Update(now, "test.com", []netip.Addr{netip.MustParseAddr("1.2.3.4")}, 60)
 		entries := cache.forward["test.com"]
 		b.StartTimer()
@@ -433,7 +433,7 @@ func BenchmarkMarshalJSON1000Repeat2(b *testing.B) {
 func benchmarkMarshalJSON(b *testing.B, numDNSEntries int) {
 	ips := makeIPs(uint32(numIPsPerEntry))
 
-	cache := NewDNSCache(0)
+	cache := NewDNSCache(0, 0)
 	for i := range numDNSEntries {
 		// TTL needs to be far enough in the future that the entry is serialized
 		cache.Update(time.Now(), fmt.Sprintf("domain-%v.com", i), ips, 86400)
@@ -452,7 +452,7 @@ func benchmarkMarshalJSON(b *testing.B, numDNSEntries int) {
 func benchmarkUnmarshalJSON(b *testing.B, numDNSEntries int) {
 	ips := makeIPs(uint32(numIPsPerEntry))
 
-	cache := NewDNSCache(0)
+	cache := NewDNSCache(0, 0)
 	for i := range numDNSEntries {
 		// TTL needs to be far enough in the future that the entry is serialized
 		cache.Update(time.Now(), fmt.Sprintf("domain-%v.com", i), ips, 86400)
@@ -464,7 +464,7 @@ func benchmarkUnmarshalJSON(b *testing.B, numDNSEntries int) {
 	n := b.N
 	emptyCaches := make([]*DNSCache, n)
 	for i := range n {
-		emptyCaches[i] = NewDNSCache(0)
+		emptyCaches[i] = NewDNSCache(0, 0)
 	}
 
 	for i := range n {
@@ -475,7 +475,7 @@ func benchmarkUnmarshalJSON(b *testing.B, numDNSEntries int) {
 
 func TestTTLInsertWithMinValue(t *testing.T) {
 	now := time.Now()
-	cache := NewDNSCache(60)
+	cache := NewDNSCache(60, 0)
 	cache.Update(now, "test.com", []netip.Addr{netip.MustParseAddr("1.2.3.4")}, 3)
 
 	// Checking just now to validate that is inserted correctly
@@ -494,9 +494,58 @@ func TestTTLInsertWithMinValue(t *testing.T) {
 	require.Empty(t, res)
 }
 
+func TestTTLInsertWithMaxValue(t *testing.T) {
+	now := time.Now()
+	cache := NewDNSCache(0, 60)
+	cache.Update(now, "test.com", []netip.Addr{netip.MustParseAddr("1.2.3.4")}, 120)
+
+	// Checking just now to validate that is inserted correctly
+	res := cache.lookupByTime(now, "test.com")
+	require.Len(t, res, 1)
+	require.Equal(t, "1.2.3.4", res[0].String())
+
+	// The entry is still valid at the maxTTL
+	res = cache.lookupByTime(now.Add(time.Second*60), "test.com")
+	require.Len(t, res, 1)
+	require.Equal(t, "1.2.3.4", res[0].String())
+
+	// The original DNS TTL (120s) must not extend the cache entry
+	future := now.Add(time.Second * 61)
+	res = cache.lookupByTime(future, "test.com")
+	require.Empty(t, res)
+}
+
+func TestTTLInsertWithinMinMaxBounds(t *testing.T) {
+	now := time.Now()
+	cache := NewDNSCache(10, 60)
+	cache.Update(now, "test.com", []netip.Addr{netip.MustParseAddr("1.2.3.4")}, 30)
+
+	// A TTL within the [min, max] bounds is honored as-is
+	res := cache.lookupByTime(now.Add(time.Second*30), "test.com")
+	require.Len(t, res, 1)
+	require.Equal(t, "1.2.3.4", res[0].String())
+
+	future := now.Add(time.Second * 31)
+	res = cache.lookupByTime(future, "test.com")
+	require.Empty(t, res)
+}
+
+func TestTTLInsertClampedToMinAndMax(t *testing.T) {
+	now := time.Now()
+	cache := NewDNSCache(10, 60)
+
+	// A TTL below the minimum is raised to the minimum, regardless of maxTTL.
+	cache.Update(now, "min.com", []netip.Addr{netip.MustParseAddr("1.2.3.4")}, 5)
+	require.Equal(t, 10, cache.forward["min.com"][netip.MustParseAddr("1.2.3.4")].TTL)
+
+	// A TTL above the maximum is capped at the maximum.
+	cache.Update(now, "max.com", []netip.Addr{netip.MustParseAddr("1.2.3.5")}, 120)
+	require.Equal(t, 60, cache.forward["max.com"][netip.MustParseAddr("1.2.3.5")].TTL)
+}
+
 func TestTTLInsertWithZeroValue(t *testing.T) {
 	now := time.Now()
-	cache := NewDNSCache(0)
+	cache := NewDNSCache(0, 0)
 	cache.Update(now, "test.com", []netip.Addr{netip.MustParseAddr("1.2.3.4")}, 10)
 
 	// Checking just now to validate that is inserted correctly
@@ -516,7 +565,7 @@ func TestTTLInsertWithZeroValue(t *testing.T) {
 }
 
 func TestTTLCleanupEntries(t *testing.T) {
-	cache := NewDNSCache(0)
+	cache := NewDNSCache(0, 0)
 	cache.Update(now, "test.com", []netip.Addr{netip.MustParseAddr("1.2.3.4")}, 3)
 	require.Len(t, cache.cleanup, 1)
 	entries, _ := cache.cleanupExpiredEntries(time.Now().Add(5 * time.Second))
@@ -526,7 +575,7 @@ func TestTTLCleanupEntries(t *testing.T) {
 }
 
 func TestTTLCleanupWithoutForward(t *testing.T) {
-	cache := NewDNSCache(0)
+	cache := NewDNSCache(0, 0)
 	now := time.Now()
 	cache.cleanup[now.Unix()] = []string{"test.com"}
 	// To make sure that all entries are validated correctly
@@ -538,7 +587,7 @@ func TestTTLCleanupWithoutForward(t *testing.T) {
 
 func TestOverlimitEntriesWithValidLimit(t *testing.T) {
 	limit := 5
-	cache := NewDNSCacheWithLimit(0, limit)
+	cache := NewDNSCacheWithLimit(0, 0, limit)
 
 	cache.Update(now, "foo.bar", []netip.Addr{netip.MustParseAddr("1.1.1.1")}, 1)
 	cache.Update(now, "bar.foo", []netip.Addr{netip.MustParseAddr("2.1.1.1")}, 1)
@@ -558,7 +607,7 @@ func TestOverlimitEntriesWithValidLimit(t *testing.T) {
 
 func TestOverlimitEntriesWithoutLimit(t *testing.T) {
 	limit := 0
-	cache := NewDNSCacheWithLimit(0, limit)
+	cache := NewDNSCacheWithLimit(0, 0, limit)
 	for i := range 5 {
 		cache.Update(now, "test.com", []netip.Addr{netip.MustParseAddr(fmt.Sprintf("1.1.1.%d", i))}, i)
 	}
@@ -569,7 +618,7 @@ func TestOverlimitEntriesWithoutLimit(t *testing.T) {
 
 func TestGCOverlimitAfterTTLCleanup(t *testing.T) {
 	limit := 5
-	cache := NewDNSCacheWithLimit(0, limit)
+	cache := NewDNSCacheWithLimit(0, 0, limit)
 
 	// Make sure that the cleanup takes all the changes from 1 minute ago.
 	cache.lastCleanup = time.Now().Add(-1 * time.Minute)
@@ -591,7 +640,7 @@ func TestGCOverlimitAfterTTLCleanup(t *testing.T) {
 func TestOverlimitAfterDeleteForwardEntry(t *testing.T) {
 	// Validate if something delete the forward entry no invalid key access on
 	// CG operation
-	dnsCache := NewDNSCache(0)
+	dnsCache := NewDNSCache(0, 0)
 	dnsCache.overLimit["test.com"] = true
 	affectedNames, _ := dnsCache.cleanupOverLimitEntries()
 	require.Empty(t, affectedNames)
@@ -946,7 +995,7 @@ func TestCacheToZombiesGCCascade(t *testing.T) {
 	logger := hivetest.Logger(t)
 
 	now := time.Now()
-	cache := NewDNSCache(0)
+	cache := NewDNSCache(0, 0)
 	zombies := NewDNSZombieMappings(logger, defaults.ToFQDNsMaxDeferredConnectionDeletes, defaults.ToFQDNsMaxIPsPerHost)
 
 	// Add entries that should expire at different times
@@ -1071,7 +1120,7 @@ func TestOverlimitPreferNewerEntries(t *testing.T) {
 
 	toFQDNsMinTTL := 100
 	toFQDNsMaxIPsPerHost := 5
-	cache := NewDNSCacheWithLimit(toFQDNsMinTTL, toFQDNsMaxIPsPerHost)
+	cache := NewDNSCacheWithLimit(toFQDNsMinTTL, 0, toFQDNsMaxIPsPerHost)
 
 	toFQDNsMaxDeferredConnectionDeletes := 10
 	zombies := NewDNSZombieMappings(logger, toFQDNsMaxDeferredConnectionDeletes, toFQDNsMaxIPsPerHost)
@@ -1161,7 +1210,7 @@ func TestPerHostLimitBehaviourForS3(t *testing.T) {
 	maxIPs := 5
 	dnsTTL := 4 // seconds
 
-	tc := NewDNSCacheWithLimit(0, maxIPs)
+	tc := NewDNSCacheWithLimit(0, 0, maxIPs)
 	z := NewDNSZombieMappings(logger, 10000, maxIPs)
 
 	// These are simulated lookup results for someDomain.

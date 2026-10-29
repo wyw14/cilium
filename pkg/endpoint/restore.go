@@ -541,7 +541,7 @@ func (ep *Endpoint) UnmarshalJSON(raw []byte) error {
 	restoredEp := &serializableEndpoint{
 		Labels:     labels.NewOpLabels(),
 		Options:    option.NewIntOptions(&EndpointMutableOptionLibrary),
-		DNSHistory: fqdn.NewDNSCacheWithLimit(option.Config.ToFQDNsMinTTL, option.Config.ToFQDNsMaxIPsPerHost),
+		DNSHistory: fqdn.NewDNSCacheWithLimit(option.Config.ToFQDNsMinTTL, option.Config.ToFQDNsMaxTTL, option.Config.ToFQDNsMaxIPsPerHost),
 		DNSZombies: fqdn.NewDNSZombieMappings(ep.Logger(subsystem), option.Config.ToFQDNsMaxDeferredConnectionDeletes, option.Config.ToFQDNsMaxIPsPerHost),
 	}
 	if err := json.Unmarshal(raw, restoredEp); err != nil {

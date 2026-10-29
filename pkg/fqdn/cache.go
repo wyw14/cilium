@@ -148,13 +148,21 @@ type DNSCache struct {
 	// Due is only read-only is not protected by the mutex.
 	minTTL int
 
+	// maxTTL is the maximum TTL value that a cache entry can have, if the TTL
+	// sent in the Update is higher, the TTL will be overwritten to this value.
+	// A value of 0 disables the upper bound and the TTL in the Update is used
+	// (subject to minTTL). Due is only read-only is not protected by the mutex.
+	maxTTL int
+
 	// updated is a set tracking the other DNSCaches that have contributed to the given DNSCache
 	// since last GC round. This is used during GC to ensure no per-endpoint changes are lost.
 	updated sets.Set[*DNSCache]
 }
 
-// NewDNSCache returns an initialized DNSCache
-func NewDNSCache(minTTL int) *DNSCache {
+// NewDNSCache returns an initialized DNSCache. minTTL raises the TTL of
+// cached entries up to the given minimum, while maxTTL caps it at the given
+// maximum. A maxTTL of 0 disables the upper bound.
+func NewDNSCache(minTTL, maxTTL int) *DNSCache {
 	c := &DNSCache{
 		forward: make(map[string]ipEntries),
 		reverse: make(map[netip.Addr]nameEntries),
@@ -163,15 +171,16 @@ func NewDNSCache(minTTL int) *DNSCache {
 		overLimit:    map[string]bool{},
 		perHostLimit: 0,
 		minTTL:       minTTL,
+		maxTTL:       maxTTL,
 		updated:      sets.New[*DNSCache](),
 	}
 	return c
 }
 
-// NewDNSCache returns an initialized DNSCache and set the max host limit to
-// the given argument
-func NewDNSCacheWithLimit(minTTL int, limit int) *DNSCache {
-	c := NewDNSCache(minTTL)
+// NewDNSCacheWithLimit returns an initialized DNSCache with the given
+// minTTL/maxTTL and sets the max host limit to the given argument
+func NewDNSCacheWithLimit(minTTL, maxTTL int, limit int) *DNSCache {
+	c := NewDNSCache(minTTL, maxTTL)
 	c.perHostLimit = limit
 	return c
 }
@@ -194,6 +203,10 @@ func (c *DNSCache) DisableCleanupTrack() {
 func (c *DNSCache) Update(lookupTime time.Time, name string, ips []netip.Addr, ttl int, updates ...*DNSCache) UpdateStatus {
 	if c.minTTL > ttl {
 		ttl = c.minTTL
+	}
+	// maxTTL of 0 disables the upper bound.
+	if c.maxTTL > 0 && ttl > c.maxTTL {
+		ttl = c.maxTTL
 	}
 
 	entry := &cacheEntry{

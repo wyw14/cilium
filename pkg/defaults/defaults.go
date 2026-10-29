@@ -122,6 +122,13 @@ const (
 	// This is used in DaemonConfig.Populate
 	ToFQDNsMinTTL = 0
 
+	// ToFQDNsMaxTTL is the default upper bound, in seconds, for TTLs used with
+	// ToFQDNs rules. DNS responses with a larger TTL (including across CNAME
+	// chains) are cached with this value instead. A value of 0 disables the
+	// upper bound and honors the TTL in the DNS response.
+	// This is used in DaemonConfig.Populate
+	ToFQDNsMaxTTL = 0
+
 	// ToFQDNsMaxIPsPerHost defines the maximum number of IPs to maintain
 	// for each FQDN name in an endpoint's FQDN cache
 	ToFQDNsMaxIPsPerHost = 1000

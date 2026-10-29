@@ -44,7 +44,7 @@ func (n *manager) doGC(ctx context.Context) error {
 		// give these entries 2 cycles of TTL to allow for timing mismatches
 		// with the CT GC.
 		activeConnectionsTTL = int(2 * DNSGCJobInterval.Seconds())
-		activeConnections    = fqdn.NewDNSCache(activeConnectionsTTL)
+		activeConnections    = fqdn.NewDNSCache(activeConnectionsTTL, 0)
 	)
 	namesToClean := make(sets.Set[string])
 	initialNames := n.cache.DumpNames()

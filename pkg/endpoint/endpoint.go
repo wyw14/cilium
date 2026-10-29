@@ -643,7 +643,7 @@ func createEndpoint(
 		labels:             labels.NewOpLabels(),
 		Options:            option.NewIntOptions(&EndpointMutableOptionLibrary),
 		DNSRules:           nil,
-		DNSHistory:         fqdn.NewDNSCacheWithLimit(option.Config.ToFQDNsMinTTL, option.Config.ToFQDNsMaxIPsPerHost),
+		DNSHistory:         fqdn.NewDNSCacheWithLimit(option.Config.ToFQDNsMinTTL, option.Config.ToFQDNsMaxTTL, option.Config.ToFQDNsMaxIPsPerHost),
 		DNSZombies:         fqdn.NewDNSZombieMappings(p.Logger, option.Config.ToFQDNsMaxDeferredConnectionDeletes, option.Config.ToFQDNsMaxIPsPerHost),
 		state:              "",
 		status:             NewEndpointStatus(),

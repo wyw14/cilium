@@ -429,6 +429,7 @@ cilium-agent [flags]
       --tofqdns-endpoint-max-ip-per-hostname int                  Maximum number of IPs to maintain per FQDN name for each endpoint (default 1000)
       --tofqdns-idle-connection-grace-period duration             Time during which idle but previously active connections with expired DNS lookups are still considered alive (default 0s)
       --tofqdns-max-deferred-connection-deletes int               Maximum number of IPs to retain for expired DNS lookups with still-active connections (default 10000)
+      --tofqdns-max-ttl int                                       The maximum time, in seconds, to use DNS data for toFQDNs policies. If the upstream DNS server returns a DNS record with a longer TTL (including records in a CNAME chain), Cilium overwrites the TTL with this value. Setting this value to zero means that Cilium will honor the TTLs returned by the upstream DNS server
       --tofqdns-min-ttl int                                       The minimum time, in seconds, to use DNS data for toFQDNs policies
       --tofqdns-preallocate-identities                            Preallocate identities for ToFQDN selectors. This reduces proxied DNS response latency. Disable if you have many ToFQDN selectors. (default true)
       --tofqdns-proxy-port int                                    Global port on which the in-agent DNS proxy should listen. Default 0 is a OS-assigned port.

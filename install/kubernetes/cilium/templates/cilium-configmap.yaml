@@ -1464,6 +1464,9 @@ data:
   {{- if .Values.dnsProxy.maxDeferredConnectionDeletes }}
   tofqdns-max-deferred-connection-deletes: {{ .Values.dnsProxy.maxDeferredConnectionDeletes | quote }}
   {{- end }}
+  {{- if .Values.dnsProxy.maxTtl }}
+  tofqdns-max-ttl: {{ .Values.dnsProxy.maxTtl | quote }}
+  {{- end }}
   {{- if .Values.dnsProxy.minTtl }}
   tofqdns-min-ttl: {{ .Values.dnsProxy.minTtl | quote }}
   {{- end }}

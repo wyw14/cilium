@@ -243,7 +243,7 @@ func TestNameManagerGCConsistency(t *testing.T) {
 		ID: identity.NumericIdentity(int(cmtypes.DefaultClusterInfo.MaximumAllocationIdentity())),
 	},
 		DNSZombies: fqdn.NewDNSZombieMappings(logger, 10000, 10000),
-		DNSHistory: fqdn.NewDNSCache(1),
+		DNSHistory: fqdn.NewDNSCache(1, 0),
 	}
 	ep.UpdateLogger(nil)
 	ipc := ipcache.NewIPCache(&ipcache.Configuration{

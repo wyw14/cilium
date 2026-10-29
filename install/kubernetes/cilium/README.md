@@ -365,6 +365,7 @@ contributors across the globe, there is almost always someone available to help.
 | dnsProxy.endpointMaxIpPerHostname | int | `1000` | Maximum number of IPs to maintain per FQDN name for each endpoint. |
 | dnsProxy.idleConnectionGracePeriod | string | `"0s"` | Time during which idle but previously active connections with expired DNS lookups are still considered alive. |
 | dnsProxy.maxDeferredConnectionDeletes | int | `10000` | Maximum number of IPs to retain for expired DNS lookups with still-active connections. |
+| dnsProxy.maxTtl | int | `0` | The maximum time, in seconds, to use DNS data for toFQDNs policies. If the upstream DNS server returns a DNS record with a longer TTL (including records in a CNAME chain), Cilium overwrites the TTL with this value. Setting this value to zero means that Cilium will honor the TTLs returned by the upstream DNS server. |
 | dnsProxy.minTtl | int | `0` | The minimum time, in seconds, to use DNS data for toFQDNs policies. If the upstream DNS server returns a DNS record with a shorter TTL, Cilium overwrites the TTL with this value. Setting this value to zero means that Cilium will honor the TTLs returned by the upstream DNS server. |
 | dnsProxy.preAllocateIdentities | bool | `true` | Pre-allocate ToFQDN identities. This reduces DNS proxy tail latency, at the potential cost of some unnecessary policymap entries. Disable this if you have a large (200+) number of unique ToFQDN selectors. |
 | dnsProxy.proxyPort | int | `0` | Global port on which the in-agent DNS proxy should listen. Default 0 is a OS-assigned port. |

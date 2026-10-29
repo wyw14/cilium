@@ -356,6 +356,11 @@ const (
 	// ToFQDNsMinTTL is the minimum time, in seconds, to use DNS data for toFQDNs policies.
 	ToFQDNsMinTTL = "tofqdns-min-ttl"
 
+	// ToFQDNsMaxTTL is the maximum time, in seconds, to use DNS data for
+	// toFQDNs policies. A value of 0 means no upper bound and honors the TTL
+	// in the DNS response. It must not be lower than ToFQDNsMinTTL.
+	ToFQDNsMaxTTL = "tofqdns-max-ttl"
+
 	// ToFQDNsProxyPort is the global port on which the in-agent DNS proxy should listen. Default 0 is a OS-assigned port.
 	ToFQDNsProxyPort = "tofqdns-proxy-port"
 
@@ -1432,6 +1437,12 @@ type DaemonConfig struct {
 	TracePayloadlen        int
 	TracePayloadlenOverlay int
 	ToFQDNsMinTTL          int
+
+	// ToFQDNsMaxTTL is the maximum time, in seconds, to use DNS data for
+	// toFQDNs policies. A value of 0 means no upper bound is enforced and the
+	// TTL in the DNS response is honored. It must not be lower than
+	// ToFQDNsMinTTL when set.
+	ToFQDNsMaxTTL          int
 
 	// DNSPolicyUnloadOnShutdown defines whether DNS policy rules should be unloaded on
 	// graceful shutdown.
@@ -2637,6 +2648,20 @@ func (c *DaemonConfig) Populate(logger *slog.Logger, vp *viper.Viper) {
 		c.ToFQDNsMinTTL = vp.GetInt(ToFQDNsMinTTL)
 	default:
 		c.ToFQDNsMinTTL = defaults.ToFQDNsMinTTL
+	}
+	switch {
+	case vp.IsSet(ToFQDNsMaxTTL): // set by user
+		c.ToFQDNsMaxTTL = vp.GetInt(ToFQDNsMaxTTL)
+	default:
+		c.ToFQDNsMaxTTL = defaults.ToFQDNsMaxTTL
+	}
+	if c.ToFQDNsMaxTTL < 0 {
+		logging.Fatal(logger, fmt.Sprintf("%s must be greater than or equal to 0, where 0 disables the TTL upper bound",
+			ToFQDNsMaxTTL))
+	}
+	if c.ToFQDNsMaxTTL != 0 && c.ToFQDNsMaxTTL < c.ToFQDNsMinTTL {
+		logging.Fatal(logger, fmt.Sprintf("%s (%d) cannot be lower than %s (%d)",
+			ToFQDNsMaxTTL, c.ToFQDNsMaxTTL, ToFQDNsMinTTL, c.ToFQDNsMinTTL))
 	}
 	c.ToFQDNsProxyPort = vp.GetInt(ToFQDNsProxyPort)
 	c.ToFQDNsIdleConnectionGracePeriod = vp.GetDuration(ToFQDNsIdleConnectionGracePeriod)

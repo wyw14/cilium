@@ -79,7 +79,7 @@ func (m *mockEndpointManager) LookupIP(ip netip.Addr) *endpoint.Endpoint {
 		}
 
 		ep.UpdateLogger(nil)
-		ep.DNSHistory = fqdn.NewDNSCache(0)
+		ep.DNSHistory = fqdn.NewDNSCache(0, 0)
 
 		return ep
 	case destAddr:

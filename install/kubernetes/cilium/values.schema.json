@@ -1853,6 +1853,9 @@
         "maxDeferredConnectionDeletes": {
           "type": "integer"
         },
+        "maxTtl": {
+          "type": "integer"
+        },
         "minTtl": {
           "type": "integer"
         },

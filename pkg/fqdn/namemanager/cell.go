@@ -37,6 +37,7 @@ var Cell = cell.Module(
 		return NameManagerConfig{
 			NameManagerLocalConfig: lc,
 			MinTTL:                 dc.ToFQDNsMinTTL,
+			MaxTTL:                 dc.ToFQDNsMaxTTL,
 			DNSProxyLockCount:      dc.DNSProxyLockCount,
 			StateDir:               dc.StateDir,
 			EnableIPv4:             dc.EnableIPv4,
@@ -56,6 +57,10 @@ type NameManagerConfig struct {
 
 	// MinTTL is the minimum TTL value that a cache entry can have.
 	MinTTL int
+
+	// MaxTTL is the maximum TTL value that a cache entry can have. A value of
+	// 0 disables the upper bound and the DNS response TTL is honored.
+	MaxTTL int
 
 	// DNSProxyLockCount is used to shard serialization of updates to DNS names.
 	DNSProxyLockCount int

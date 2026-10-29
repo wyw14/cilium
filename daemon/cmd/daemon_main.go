@@ -614,6 +614,9 @@ func InitGlobalFlags(logger *slog.Logger, cmd *cobra.Command, vp *viper.Viper) {
 	flags.Int(option.ToFQDNsMinTTL, defaults.ToFQDNsMinTTL, "The minimum time, in seconds, to use DNS data for toFQDNs policies")
 	option.BindEnv(vp, option.ToFQDNsMinTTL)
 
+	flags.Int(option.ToFQDNsMaxTTL, defaults.ToFQDNsMaxTTL, "The maximum time, in seconds, to use DNS data for toFQDNs policies. If the upstream DNS server returns a DNS record with a longer TTL (including records in a CNAME chain), Cilium overwrites the TTL with this value. Setting this value to zero means that Cilium will honor the TTLs returned by the upstream DNS server")
+	option.BindEnv(vp, option.ToFQDNsMaxTTL)
+
 	flags.Int(option.ToFQDNsProxyPort, 0, "Global port on which the in-agent DNS proxy should listen. Default 0 is a OS-assigned port.")
 	option.BindEnv(vp, option.ToFQDNsProxyPort)
 
